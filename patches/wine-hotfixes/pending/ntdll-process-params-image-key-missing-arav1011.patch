@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Tue, 16 Jun 2026 13:48:50 -0600
+Subject: [PATCH] ntdll: Manage PROCESS_PARAMS_IMAGE_KEY_MISSING flag.
+
+CW-Bug-Id: #27227
+
+Backport of upstream Proton Wine commits:
+  5c072d4d50e ntdll: Add tests for PROCESS_PARAMS_IMAGE_KEY_MISSING flag.
+  e145ade9a55 ntdll: Manage PROCESS_PARAMS_IMAGE_KEY_MISSING flag.
+(test-only changes to dlls/ntdll/tests/info.c omitted)
+
+Fixes ARC Raiders' Denuvo Anti-Cheat reporting ARAV1011 ("Prohibited
+Software"). The anti-cheat reads RTL_USER_PROCESS_PARAMETERS::Flags and
+expects the PROCESS_PARAMS_IMAGE_KEY_MISSING bit to be set when the
+process has no Image File Execution Options registry key (i.e. it is not
+being debugged). Wine never managed this flag, so the value did not match
+what the anti-cheat sees on Windows and the check failed.
+---
+ dlls/ntdll/env.c         |  1 +
+ dlls/ntdll/unix/env.c    |  1 +
+ dlls/ntdll/unix/server.c | 13 +++++++++++++
+ include/winternl.h       |  5 +++--
+ 4 files changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/ntdll/env.c b/dlls/ntdll/env.c
+index 2f26bca95a8..a194853e4a6 100644
+--- a/dlls/ntdll/env.c
++++ b/dlls/ntdll/env.c
+@@ -700,6 +700,7 @@ void init_user_process_params(void)
+         return;
+
+     new_params->Environment     = env;
++    new_params->Flags           = params->Flags;
+     new_params->DebugFlags      = params->DebugFlags;
+     new_params->ConsoleHandle   = params->ConsoleHandle;
+     new_params->ConsoleFlags    = params->ConsoleFlags;
+diff --git a/dlls/ntdll/unix/env.c b/dlls/ntdll/unix/env.c
+index 8c4e9f7ac76..042daa27ac7 100644
+--- a/dlls/ntdll/unix/env.c
++++ b/dlls/ntdll/unix/env.c
+@@ -1800,6 +1800,7 @@ static void load_global_options( const UNICODE_STRING *image )
+             peb->NtGlobalFlag = get_dword_option( key, globalflagW, peb->NtGlobalFlag );
+             NtClose( key );
+         }
++        else peb->ProcessParameters->Flags |= PROCESS_PARAMS_IMAGE_KEY_MISSING;
+         NtClose( attr.RootDirectory );
+     }
+ }
+diff --git a/dlls/ntdll/unix/server.c b/dlls/ntdll/unix/server.c
+index 5d8a59b6156..112157b0dd7 100644
+--- a/dlls/ntdll/unix/server.c
++++ b/dlls/ntdll/unix/server.c
+@@ -1787,6 +1787,19 @@ void server_init_process_done(void)
+     SERVER_END_REQ;
+
+     assert( !status );
++    if (peb->BeingDebugged)
++    {
++        peb->ProcessParameters->Flags &= ~PROCESS_PARAMS_IMAGE_KEY_MISSING;
++        if (wow_peb)
++        {
++#ifdef _WIN64
++            RTL_USER_PROCESS_PARAMETERS32 *wow64_params = ULongToPtr(wow_peb->ProcessParameters);
++#else
++            RTL_USER_PROCESS_PARAMETERS64 *wow64_params = ULongToPtr(wow_peb->ProcessParameters);
++#endif
++            wow64_params->Flags &= ~PROCESS_PARAMS_IMAGE_KEY_MISSING;
++        }
++    }
+     signal_start_thread( main_image_info.TransferAddress, peb, suspend, NtCurrentTeb() );
+ }
+
+diff --git a/include/winternl.h b/include/winternl.h
+index de65451874e..625595972f1 100644
+--- a/include/winternl.h
++++ b/include/winternl.h
+@@ -201,8 +201,9 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS
+     ULONG               LoaderThreads;
+ } RTL_USER_PROCESS_PARAMETERS, *PRTL_USER_PROCESS_PARAMETERS;
+
+-/* value for Flags field (FIXME: not the correct name) */
+-#define PROCESS_PARAMS_FLAG_NORMALIZED 1
++/* value for Flags field (FIXME: not the correct names) */
++#define PROCESS_PARAMS_FLAG_NORMALIZED        0x00000001
++#define PROCESS_PARAMS_IMAGE_KEY_MISSING      0x00004000
+
+ typedef struct _PEB_LDR_DATA
+ {
+--
+2.49.0

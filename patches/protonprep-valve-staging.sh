@@ -220,6 +220,12 @@ apply_all_in_dir() {
     echo "WINE: -HOTFIX- Fix Smart Tee negotiation and V4L WoW64 media type marshaling"
     apply_all_in_dir "../patches/wine-hotfixes/qcap-dshow-fixes/"
 
+    # Backport of upstream Proton/Wine CW-Bug-Id #27227 (Paul Gofman, 2026-06-16).
+    # Fixes ARC Raiders Denuvo Anti-Cheat error ARAV1011 ("Prohibited Software")
+    # by managing the PROCESS_PARAMS_IMAGE_KEY_MISSING process-parameters flag.
+    echo "WINE: -HOTFIX- Manage PROCESS_PARAMS_IMAGE_KEY_MISSING flag (ARC Raiders ARAV1011 anti-cheat fix)"
+    apply_patch "../patches/wine-hotfixes/pending/ntdll-process-params-image-key-missing-arav1011.patch"
+
 ### END WINE HOTFIX/BACKPORT SECTION ###
 
 ### (2-6) WINE PENDING UPSTREAM SECTION ###
